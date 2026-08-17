@@ -1,0 +1,43 @@
+# Patent Chemistry Analyzer
+#   docker compose up --build
+#
+# Requires a `.env` file next to this compose file (copy from `.env.example`
+# and fill in at least GROQ_API_KEY, or leave Ollama as the local provider).
+#
+# The optional `ollama` service provides a fully on-prem provider chain:
+# patents never leave your machine. The app auto-detects providers in the order
+# GROQ > OPENAI > GOOGLE > OLLAMA, so a cloud key simply takes priority.
+#
+# The `pca_storage` volume persists uploads, the SQLite DB, structure images
+# and generated reports across container restarts.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: patent-chemistry-analyzer:latest
+    container_name: pca-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Point the app at the compose-managed Ollama instance when in use.
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - pca_storage:/app/storage
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pca-ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    # The app tolerates Ollama being absent; pull the model once inside:
+    #   docker compose exec ollama ollama pull llama3.2:3b
+
+volumes:
+  pca_storage:
+  ollama_models:

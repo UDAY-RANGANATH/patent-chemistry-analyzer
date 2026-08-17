@@ -1,0 +1,13 @@
+backend/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+tests
+storage
+example_data
+.env
+*.db
+*.db-wal
+*.db-shm
+.git
+.gitignore

@@ -1,0 +1,40 @@
+# Patent Chemistry Analyzer — backend requirements
+# Heavy scientific packages (rdkit, opencv, numpy) are expected to be installed
+# in the base interpreter; the venv is created with --system-site-packages so
+# this list is kept minimal and portable.
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.8
+pydantic-settings>=2.4
+python-multipart>=0.0.9
+
+# PDF + OCR
+PyMuPDF>=1.24
+pdfplumber>=0.11
+pytesseract>=0.3.13
+pypdf>=4.2
+pypdfium2>=4.30
+Pillow>=10.4
+opencv-python-headless>=4.10
+
+# Chemistry
+rdkit>=2024.3
+requests>=2.32
+
+# AI / agents
+openai>=1.40
+langchain>=1.0
+langchain-core>=1.0
+langgraph>=1.0
+
+# Document generation
+python-docx>=1.1
+
+# Database
+SQLAlchemy>=2.0
+
+# Misc
+httpx>=0.27
+matplotlib>=3.8
+networkx>=3.2

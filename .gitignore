@@ -1,0 +1,23 @@
+# Secrets — never commit
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+backend/.venv/
+.pytest_cache/
+
+# App storage (uploads, SQLite DB, generated images/reports)
+storage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp

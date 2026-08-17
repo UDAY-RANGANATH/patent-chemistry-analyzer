@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patent Chemistry Analyzer</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --accent2: #22d3ee;
+    --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  header .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); }
+  header .dot.ok { background: var(--ok); }
+  #layout { display: flex; min-height: calc(100vh - 57px); }
+  #sidebar { width: 300px; min-width: 300px; border-right: 1px solid var(--line); padding: 12px; background: var(--panel); overflow-y: auto; }
+  #main { flex: 1; padding: 20px; overflow-y: auto; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 8px 0; }
+  #dropzone { border: 2px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; cursor: pointer; transition: all .15s; background: var(--panel2); }
+  #dropzone.drag { border-color: var(--accent); background: #0c4a6e22; }
+  #dropzone .big { font-size: 15px; color: var(--text); }
+  #dropzone .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .job-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; background: var(--panel2); }
+  .job-card:hover { border-color: var(--accent); }
+  .job-card.active { border-color: var(--accent); outline: 1px solid var(--accent); }
+  .job-card .name { font-size: 12px; font-weight: 600; }
+  .job-card .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; margin-right: 4px; }
+  .chip.ok { background: #14532d; color: var(--ok); }
+  .chip.run { background: #1e3a8a; color: #93c5fd; }
+  .chip.bad { background: #7f1d1d; color: var(--bad); }
+  .chip.warn { background: #78350f; color: var(--warn); }
+  #tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+  #tabs button { background: transparent; border: none; color: var(--muted); padding: 8px 14px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; }
+  #tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  #tabs button:hover { color: var(--text); }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  .progress { height: 10px; background: var(--panel2); border-radius: 6px; overflow: hidden; margin: 10px 0; }
+  .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); width: 0%; transition: width .4s; }
+  #progressLabel { font-size: 12px; color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  img.struct { width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 6px; padding: 2px; }
+  .kv { display: grid; grid-template-columns: 170px 1fr; gap: 4px 12px; font-size: 12.5px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+  .smiles { font-family: Consolas, monospace; font-size: 11px; color: var(--accent2); word-break: break-all; }
+  .muted { color: var(--muted); }
+  .role-tag { display: inline-block; background: #0c4a6e; color: #bae6fd; padding: 1px 7px; border-radius: 4px; font-size: 10.5px; margin: 1px 2px 1px 0; }
+  .stage-item { border-left: 3px solid var(--accent); padding: 10px 12px; margin: 10px 0; background: var(--panel2); border-radius: 0 8px 8px 0; }
+  .stage-item .no { font-size: 11px; color: var(--accent); font-weight: 700; }
+  .rxn-participant { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .arrow { color: var(--accent2); font-weight: 700; }
+  .wc-diff { background: #0f172a; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 11.5px; margin-top: 8px; }
+  .wc-diff .lbl { color: var(--muted); font-weight: 600; }
+  .flash { position: fixed; top: 16px; right: 16px; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 99; background: #7f1d1d; color: #fecaca; box-shadow: 0 4px 20px #0008; }
+  .flash.ok { background: #14532d; color: #bbf7d0; }
+  button.primary { background: var(--accent); color: #082f49; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  a.dl { display: inline-block; margin-top: 8px; background: var(--accent); color: #082f49; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; }
+  #flowcanvas { width: 100%; height: 560px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; }
+  #srcText { white-space: pre-wrap; font-size: 12px; line-height: 1.55; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; max-height: 520px; overflow-y: auto; }
+  .empty { text-align: center; color: var(--muted); padding: 30px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { #layout { flex-direction: column; } #sidebar { width: 100%; min-width: 0; } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Patent Chemistry Analyzer</h1>
+  <div class="dot" id="healthDot" title="checking backend"></div>
+  <span id="healthText" class="muted" style="font-size:12px">checking…</span>
+</header>
+<div id="layout">
+  <aside id="sidebar">
+    <h2>Upload patent</h2>
+    <div id="dropzone">
+      <div class="big">Drop a PDF here or click to browse</div>
+      <div class="sub">Extracts compounds, reactions, manufacturing stages &amp; generates a Word report</div>
+      <input type="file" id="fileInput" accept=".pdf" style="display:none">
+    </div>
+    <h2>Jobs</h2>
+    <div id="jobList"><div class="muted" style="font-size:12px">No jobs yet.</div></div>
+  </aside>
+  <main id="main">
+    <div id="noJob" class="empty">
+      <h2 style="text-transform:none; letter-spacing:0; color:var(--text)">Upload a patent PDF to begin</h2>
+      <div style="font-size:13px">Analysis runs fully on your machine (LLM + chemistry APIs).</div>
+    </div>
+    <div id="jobView" style="display:none">
+      <h2 id="jobTitle" style="text-transform:none; letter-spacing:0; color:var(--text); font-size:16px">—</h2>
+      <div id="jobMeta" class="muted" style="font-size:12px"></div>
+      <div id="progressWrap" style="display:none">
+        <div class="progress"><div id="progressBar"></div></div>
+        <div id="progressLabel">starting…</div>
+      </div>
+      <div id="jobError" class="flash" style="display:none"></div>
+      <div id="tabs">
+        <button data-tab="overview" class="active">Overview</button>
+        <button data-tab="compounds">Compounds</button>
+        <button data-tab="reactions">Reactions</button>
+        <button data-tab="manufacturing">Manufacturing</button>
+        <button data-tab="flowchart">Flowchart</button>
+        <button data-tab="sources">Sources</button>
+        <button data-tab="report">Report</button>
+      </div>
+      <div id="tab-overview" class="tab active"></div>
+      <div id="tab-compounds" class="tab"></div>
+      <div id="tab-reactions" class="tab"></div>
+      <div id="tab-manufacturing" class="tab"></div>
+      <div id="tab-flowchart" class="tab"></div>
+      <div id="tab-sources" class="tab"></div>
+      <div id="tab-report" class="tab"></div>
+    </div>
+  </main>
+</div>
+<script>
+"use strict";
+const $ = (sel) => document.querySelector(sel);
+const state = { jobs: [], current: null, eventSrc: null, pollTimer: null };
+
+/* ---------- helpers ---------- */
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function ns(s) { return (s && s.trim() && s !== "Not specified in patent") ? s : null; }
+function flash(msg, ok) {
+  const el = document.createElement("div");
+  el.className = "flash" + (ok ? " ok" : "");
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let msg = res.status + " " + res.statusText;
+    try { const j = await res.json(); if (j.detail) msg = (typeof j.detail === "string") ? j.detail : JSON.stringify(j.detail); } catch (e) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+/* ---------- health ---------- */
+async function checkHealth() {
+  try {
+    const h = await api("/api/health");
+    $("#healthDot").className = "dot ok";
+    $("#healthText").textContent = `backend ${h.provider}${h.rdkit ? " · rdkit" : ""}${h.tesseract ? " · ocr" : ""}`;
+  } catch (e) {
+    $("#healthDot").className = "dot";
+    $("#healthText").textContent = "backend unreachable";
+  }
+}
+
+/* ---------- upload ---------- */
+async function uploadFile(file) {
+  if (!file || !file.name.toLowerCase().endsWith(".pdf")) { flash("Only PDF files are accepted.", false); return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  flash("Uploading " + file.name + "…", true);
+  try {
+    const up = await api("/api/upload", { method: "POST", body: fd });
+    flash("Uploaded — analysis started (job #" + up.job_id + ")", true);
+    selectJob(up.job_id);
+    refreshJobs();
+  } catch (e) { flash("Upload failed: " + e.message, false); }
+}
+$("#dropzone").addEventListener("click", () => $("#fileInput").click());
+$("#dropzone").addEventListener("dragover", e => { e.preventDefault(); $("#dropzone").classList.add("drag"); });
+$("#dropzone").addEventListener("dragleave", () => $("#dropzone").classList.remove("drag"));
+$("#dropzone").addEventListener("drop", e => {
+  e.preventDefault(); $("#dropzone").classList.remove("drag");
+  uploadFile(e.dataTransfer.files[0]);
+});
+$("#fileInput").addEventListener("change", e => { uploadFile(e.target.files[0]); e.target.value = ""; });
+
+/* ---------- job list ---------- */
+const STATUS = { complete: ["ok", "complete"], processing: ["run", "running"], uploaded: ["run", "queued"], failed: ["bad", "failed"] };
+async function refreshJobs() {
+  try {
+    const jobs = await api("/api/jobs");
+    state.jobs = jobs;
+    renderJobs();
+    if (state.current && state.current.status === "processing") {
+      const fresh = jobs.find(j => j.job_id === state.current.job_id);
+      if (fresh) state.current = fresh;
+    }
+  } catch (e) { /* backend down */ }
+}
+function renderJobs() {
+  const el = $("#jobList");
+  if (!state.jobs.length) { el.innerHTML = '<div class="muted" style="font-size:12px">No jobs yet.</div>'; return; }
+  el.innerHTML = state.jobs.map(j => {
+    const st = STATUS[j.status] || ["warn", j.status];
+    return `<div class="job-card ${state.current && state.current.job_id === j.job_id ? "active" : ""}" data-id="${j.job_id}">
+      <div class="name">${esc(j.filename)} <span class="chip ${st[0]}">${st[1]}</span></div>
+      <div class="meta">#${j.job_id} · ${j.patent_title && j.patent_title !== "Not specified in patent" ? esc(j.patent_title) : "no title yet"}${j.progress > 0 ? " · " + Math.round(j.progress * 100) + "%" : ""}</div>
+    </div>`;
+  }).join("");
+  el.querySelectorAll(".job-card").forEach(card => card.addEventListener("click", () => selectJob(+card.dataset.id)));
+}
+
+/* ---------- selection ---------- */
+function selectJob(id) {
+  if (state.current && state.current.job_id === id) { showJob(); return; }
+  disconnectStream();
+  clearInterval(state.pollTimer);
+  state.current = state.jobs.find(j => j.job_id === id) || { job_id: id, status: "processing" };
+  renderJobs();
+  showJob();
+}
+function disconnectStream() {
+  if (state.eventSrc) { state.eventSrc.close(); state.eventSrc = null; }
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+}
+function showJob() {
+  $("#noJob").style.display = "none";
+  $("#jobView").style.display = "block";
+  const j = state.current;
+  $("#jobTitle").textContent = (j.patent_title && j.patent_title !== "Not specified in patent") ? j.patent_title : `Job #${j.job_id} — ${esc(j.filename)}`;
+  $("#jobMeta").textContent = `#${j.job_id} · ${j.page_count} pages · status ${j.status}${j.confidence ? " · QC " + Math.round(j.confidence * 100) + "%" : ""}`;
+  $("#jobError").style.display = j.error ? "block" : "none";
+  if (j.error) $("#jobError").textContent = "Error: " + j.error;
+
+  if (j.status === "processing" || j.status === "uploaded") {
+    $("#progressWrap").style.display = "block";
+    $("#progressBar").style.width = Math.round((j.progress || 0) * 100) + "%";
+    $("#progressLabel").textContent = (j.current_stage || "queued") + (j.progress ? " · " + Math.round(j.progress * 100) + "%" : "");
+    openStream(j.job_id);
+    state.pollTimer = setInterval(async () => {
+      try {
+        const s = await api(`/api/jobs/${j.job_id}/summary`);
+        if (s.status !== "processing" && s.status !== "uploaded") {
+          state.current = s; refreshJobs(); showJob();
+        } else {
+          state.current = s;
+          $("#progressBar").style.width = Math.round(s.progress * 100) + "%";
+          $("#progressLabel").textContent = s.current_stage + " · " + Math.round(s.progress * 100) + "%";
+        }
+      } catch (e) {}
+    }, 3000);
+    renderSkeleton(j);
+    return;
+  }
+  $("#progressWrap").style.display = "none";
+  disconnectStream();
+  if (j.status === "complete") loadData(j.job_id);
+  else renderEmpty(`Analysis ${j.status}.`);
+}
+
+function openStream(id) {
+  if (state.eventSrc) return;
+  const es = new EventSource(`/api/jobs/${id}/events`);
+  state.eventSrc = es;
+  es.onmessage = (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.progress != null) {
+        $("#progressBar").style.width = Math.round(d.progress * 100) + "%";
+        $("#progressLabel").textContent = (d.stage || "") + (d.detail ? " — " + d.detail : "");
+      }
+    } catch (e) {}
+  };
+  es.onerror = () => { /* server will re-poll via summary */ };
+}
+
+/* ---------- data loading ---------- */
+async function loadData(id) {
+  renderSkeleton(state.current);
+  try {
+    const [summary, compounds, reactions, stages, manufacturing, flowchart] = await Promise.all([
+      api(`/api/jobs/${id}/summary`),
+      api(`/api/jobs/${id}/compounds`),
+      api(`/api/jobs/${id}/reactions`),
+      api(`/api/jobs/${id}/stages`),
+      api(`/api/jobs/${id}/manufacturing`),
+      api(`/api/jobs/${id}/flowchart`),
+    ]);
+    state.current = summary;
+    renderOverview(summary);
+    renderCompounds(compounds);
+    renderReactions(reactions);
+    renderManufacturing(manufacturing);
+    renderFlowchart(flowchart);
+    renderSources(id, summary.page_count);
+    renderReport(id);
+  } catch (e) {
+    renderEmpty("Failed to load data: " + e.message);
+  }
+}
+function renderSkeleton(j) {
+  ["overview", "compounds", "reactions", "manufacturing", "flowchart", "sources", "report"].forEach(t => {
+    const el = $("#tab-" + t);
+    el.innerHTML = '<div class="empty">' + (j.status === "complete" ? "Loading…" : "Analysis in progress — this panel updates automatically.") + '</div>';
+  });
+}
+function renderEmpty(msg) {
+  ["overview", "compounds", "reactions", "manufacturing", "flowchart", "sources", "report"].forEach(t => {
+    $("#tab-" + t).innerHTML = `<div class="empty">${esc(msg)}</div>`;
+  });
+}
+function kvCard(title, pairs) {
+  return `<div class="card"><h3>${esc(title)}</h3><dl class="kv">${pairs.filter(p => p[1] != null).map(p =>
+    `<dt>${esc(p[0])}</dt><dd>${p[1]}</dd>`).join("")}</dl></div>`;
+}
+
+/* ---------- tabs ---------- */
+$("#tabs").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-tab]");
+  if (!btn) return;
+  $("#tabs .active").classList.remove("active");
+  btn.classList.add("active");
+  $(".tab.active").classList.remove("active");
+  $("#tab-" + btn.dataset.tab).classList.add("active");
+});
+
+/* ---------- overview ---------- */
+function renderOverview(s) {
+  const sec = (s.sections || []).map(x => `<div>p${x.page_start}${x.page_end && x.page_end !== x.page_start ? "–" + x.page_end : ""} · ${esc(x.kind)}${x.heading ? " — " + esc(x.heading) : ""}</div>`).join("");
+  const pairs = [
+    ["Patent number", esc(s.patent_number)],
+    ["Assignee", esc(s.assignee)],
+    ["Inventors", esc(s.inventors)],
+    ["Filing date", esc(s.filing_date)],
+    ["Confidence (QC)", s.confidence ? `<b style="color:var(--ok)">${Math.round(s.confidence * 100)}%</b>` : null],
+    ["Compounds", s.compound_count + ` <a href="#" data-goto="compounds">view</a>`],
+    ["Reactions", s.reaction_count + ` <a href="#" data-goto="reactions">view</a>`],
+    ["Manufacturing stages", s.stage_count + ` <a href="#" data-goto="manufacturing">view</a>`],
+  ];
+  $("#tab-overview").innerHTML =
+    kvCard("Patent metadata", pairs) +
+    (sec ? `<div class="card"><h3>Document structure (${s.sections.length} sections)</h3>${sec}</div>` : "");
+  $("#tab-overview").querySelectorAll("[data-goto]").forEach(a => a.addEventListener("click", e => {
+    e.preventDefault();
+    const btn = document.querySelector(`#tabs button[data-tab="${a.dataset.goto}"]`);
+    if (btn) btn.click();
+  }));
+}
+
+/* ---------- compounds ---------- */
+function renderCompounds(list) {
+  if (!list || !list.length) { $("#tab-compounds").innerHTML = '<div class="empty">No compounds found.</div>'; return; }
+  const rows = list.map(c => {
+    const desc = (c.extra && c.extra.descriptors) || {};
+    const roles = (c.role || "").split("|").map(r => `<span class="role-tag">${esc(r)}</span>`).join("");
+    return `<tr>
+      <td>${esc(c.cid)}</td>
+      <td>${c.image_url ? `<img class="struct" src="${esc(c.image_url)}" onerror="this.style.visibility='hidden'">` : ""}</td>
+      <td><b>${esc(c.name)}</b><br><span class="muted">${esc(c.iupac_name)}</span></td>
+      <td>${roles}</td>
+      <td>${esc(c.molecular_formula)}</td>
+      <td>${c.molecular_weight != null ? c.molecular_weight.toFixed(2) : "—"}</td>
+      <td>${esc(c.cas_number)}</td>
+      <td class="smiles">${c.smiles ? esc(c.smiles) : "—"}</td>
+      <td>${desc.logp != null ? "logP " + desc.logp + "<br>" : ""}${desc.tpsa != null ? "TPSA " + desc.tpsa : ""}</td>
+    </tr>`;
+  }).join("");
+  $("#tab-compounds").innerHTML = `<div class="card"><table>
+    <tr><th>ID</th><th>Structure</th><th>Name</th><th>Role</th><th>Formula</th><th>MW</th><th>CAS</th><th>SMILES</th><th>Descriptors</th></tr>
+    ${rows}</table></div>`;
+}
+
+/* ---------- reactions ---------- */
+function wcBlock(wc) {
+  if (!wc) return "";
+  const fields = [["Before", wc.before_smiles], ["After", wc.after_smiles]];
+  const bondF = (wc.bond_formed || []).join("; "), bondB = (wc.bond_broken || []).join("; "),
+        atA = (wc.atoms_added || []).join("; "), atR = (wc.atoms_removed || []).join("; ");
+  const extra = [];
+  if (bondF) extra.push(["Bonds formed", bondF]);
+  if (bondB) extra.push(["Bonds broken", bondB]);
+  if (atA) extra.push(["Atoms added", atA]);
+  if (atR) extra.push(["Atoms removed", atR]);
+  if (wc.summary) extra.push(["Summary", wc.summary]);
+  const rows = [...fields, ...extra].filter(f => f[1]).map(f => `<div><span class="lbl">${esc(f[0])}:</span> <span class="smiles">${esc(f[1])}</span></div>`).join("");
+  return `<div class="wc-diff"><div class="lbl">What changed (RDKit structural diff)</div>${rows}</div>`;
+}
+function renderReactions(list) {
+  if (!list || !list.length) { $("#tab-reactions").innerHTML = '<div class="empty">No reactions found.</div>'; return; }
+  const cards = list.map(r => {
+    const parts = (r.participants || []).map(p => `<div class="rxn-participant"><b>${esc(p.cid)}</b> ${esc(p.name)} <span class="role-tag">${esc(p.role)}</span></div>`).join("");
+    const conditions = kvCard("Conditions", [
+      ["Type", esc(r.type)], ["Reagents", esc(r.reagents)], ["Catalysts", esc(r.catalysts)],
+      ["Solvents", esc(r.solvents)], ["Temperature", esc(r.temperature)], ["Pressure", esc(r.pressure)],
+      ["Time", esc(r.time)], ["Atmosphere", esc(r.atmosphere)], ["Yield", esc(r.yield_pct)],
+      ["Workup", esc(r.workup)], ["Equipment", esc(r.equipment)],
+      ["Source", r.source_page ? "page " + r.source_page : null],
+    ]);
+    return `<div class="card"><h3>${esc(r.rid)} — ${esc(r.name) || esc(r.type)}</h3>
+      <div class="rxn-participant" style="flex-wrap:wrap">${parts}</div>
+      ${conditions}${wcBlock(r.what_changed)}</div>`;
+  }).join("");
+  $("#tab-reactions").innerHTML = cards;
+}
+
+/* ---------- manufacturing ---------- */
+function renderManufacturing(m) {
+  const stages = m.stages || [];
+  let html = "";
+  if (m.scale_summary && m.scale_summary !== "Not specified in patent")
+    html += `<div class="card"><h3>Scale</h3><div style="font-size:12.5px">${esc(m.scale_summary)}</div></div>`;
+  if ((m.raw_materials || []).length)
+    html += `<div class="card"><h3>Raw materials</h3><div style="font-size:12px">${m.raw_materials.map(esc).map(x => `<span class="role-tag">${x}</span>`).join(" ")}</div></div>`;
+  if ((m.equipment || []).length)
+    html += `<div class="card"><h3>Equipment</h3><div style="font-size:12px">${m.equipment.map(esc).map(x => `<span class="role-tag">${x}</span>`).join(" ")}</div></div>`;
+  if (!stages.length) {
+    html += '<div class="empty">No manufacturing stages found.</div>';
+    $("#tab-manufacturing").innerHTML = html; return;
+  }
+  html += stages.map(s => {
+    const pairs = [
+      ["Purpose", esc(s.purpose)], ["Starting material", esc(s.starting_material)],
+      ["Reagents", esc(s.reagents)], ["Conditions", esc(s.conditions)], ["Reaction", esc(s.reaction)],
+      ["Product", esc(s.product)], ["What changed", esc(s.what_changed)], ["Why required", esc(s.why_required)],
+      ["Chemistry (AI)", esc(s.chemistry)], ["Purification", esc(s.purification)],
+      ["Yield", esc(s.yield_value)], ["Equipment", esc(s.equipment)], ["Patent ref", esc(s.patent_ref)],
+      ["Scale", esc(s.scale)],
+    ].filter(p => p[1] && p[1] !== "Not specified in patent");
+    return `<div class="stage-item"><div class="no">STAGE ${s.order}</div><div style="font-weight:600;margin:2px 0 6px">${esc(s.title)}</div>
+      <dl class="kv">${pairs.map(p => `<dt>${esc(p[0])}</dt><dd>${p[1]}</dd>`).join("")}</dl></div>`;
+  }).join("");
+  $("#tab-manufacturing").innerHTML = html;
+}
+
+/* ---------- flowchart ---------- */
+function renderFlowchart(f) {
+  const el = $("#tab-flowchart");
+  if (!f || !f.nodes || !f.nodes.length) { el.innerHTML = '<div class="empty">No flowchart data.</div>'; return; }
+  el.innerHTML = '<div class="card"><h3>Reaction flowchart</h3><canvas id="flowcanvas"></canvas></div>';
+  drawFlow(f, $("#flowcanvas"));
+}
+function drawFlow(f, canvas) {
+  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+  const H = canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const nodes = f.nodes, edges = f.edges;
+  const byId = {}; nodes.forEach(n => byId[n.id] = n);
+  const layer = {};
+  const layerOf = (id) => {
+    if (layer[id] != null) return layer[id];
+    const ins = edges.filter(e => e.target === id);
+    if (!ins.length) return (layer[id] = 0);
+    layer[id] = Math.max(...ins.map(e => layerOf(e.source) + 1));
+    return layer[id];
+  };
+  nodes.forEach(n => layerOf(n.id));
+  const maxLayer = Math.max(0, ...Object.values(layer));
+  const cols = {};
+  nodes.forEach(n => { (cols[layer[n.id]] = cols[layer[n.id]] || []).push(n); });
+  const pad = 70, vGap = 70, nodeW = 130, nodeH = 40;
+  const pos = {};
+  Object.keys(cols).forEach(l => {
+    const list = cols[l];
+    const total = list.length * (nodeH + vGap) - vGap;
+    const start = (ch - total) / 2;
+    list.forEach((n, i) => pos[n.id] = { x: pad + +l * (nodeW + 130), y: start + i * (nodeH + vGap) });
+  });
+  const L = cw - 2 * pad, R = pad + maxLayer * (nodeW + 130);
+  const colW = Math.max(0, (R - pad) / Math.max(1, maxLayer));
+  ctx.lineWidth = 1.5;
+  edges.forEach(e => {
+    const s = pos[e.source], t = pos[e.target];
+    if (!s || !t) return;
+    ctx.strokeStyle = "#22d3ee"; ctx.beginPath();
+    const mx = (s.x + t.x) / 2;
+    ctx.moveTo(s.x + nodeW, s.y + nodeH / 2);
+    ctx.bezierCurveTo(mx + 40, s.y + nodeH / 2, mx - 40, t.y + nodeH / 2, t.x, t.y + nodeH / 2);
+    ctx.stroke();
+    if (e.label) {
+      ctx.fillStyle = "#e2e8f0"; ctx.font = "10px Segoe UI, sans-serif";
+      ctx.fillText(e.label.length > 42 ? e.label.slice(0, 42) + "…" : e.label, mx - 60, (s.y + t.y) / 2 - 6);
+    }
+  });
+  nodes.forEach(n => {
+    const p = pos[n.id]; if (!p) return;
+    const isC = n.kind === "compound";
+    ctx.fillStyle = isC ? "#0c4a6e" : "#7f1d1d";
+    ctx.strokeStyle = isC ? "#38bdf8" : "#f87171";
+    ctx.beginPath();
+    ctx.roundRect(p.x, p.y, nodeW, nodeH, 8); ctx.fill(); ctx.stroke();
+    const label = (n.label || n.id).length > 22 ? (n.label || n.id).slice(0, 22) + "…" : (n.label || n.id);
+    ctx.fillStyle = "#e2e8f0"; ctx.font = "600 10.5px Segoe UI, sans-serif";
+    ctx.fillText(label, p.x + 6, p.y + nodeH / 2 + 3.5);
+    if (isC && n.image_url) {
+      const img = new Image();
+      img.onload = () => { ctx.drawImage(img, p.x + nodeW - 30, p.y + 4, 32, 32); };
+      img.src = n.image_url;
+    }
+  });
+}
+
+/* ---------- sources ---------- */
+async function renderSources(id, pageCount) {
+  const el = $("#tab-sources");
+  el.innerHTML = `<div class="card"><h3>Patent source text</h3>
+    <div style="margin:8px 0;font-size:12px">Page: <select id="srcPage"></select></div>
+    <div id="srcText"><div class="empty">Select a page.</div></div></div>`;
+  const sel = $("#srcPage");
+  for (let p = 1; p <= (pageCount || 1); p++) sel.add(new Option("page " + p, p));
+  const load = async () => {
+    try {
+      const s = await api(`/api/jobs/${id}/sources/${sel.value}`);
+      $("#srcText").textContent = s.text || "Not specified in patent";
+      if (s.image_url) {
+        const img = new Image();
+        img.onload = () => { if (s.text) $("#srcText").textContent = s.text; };
+        img.onerror = () => {};
+      }
+    } catch (e) { $("#srcText").textContent = "Could not load page: " + e.message; }
+  };
+  sel.addEventListener("change", load);
+  load();
+}
+
+/* ---------- report ---------- */
+function renderReport(id) {
+  $("#tab-report").innerHTML = `<div class="card"><h3>Word report (.docx)</h3>
+    <div style="font-size:13px">Generate a formatted analysis report covering all compounds, reactions, stages and the manufacturing process.</div>
+    <button class="primary" id="genReport">Generate report</button>
+    <div id="dlWrap"></div></div>`;
+  $("#genReport").addEventListener("click", async e => {
+    e.target.disabled = true; e.target.textContent = "Generating…";
+    try {
+      await api(`/api/jobs/${id}/report`);
+      e.target.style.display = "none";
+      $("#dlWrap").innerHTML = `<a class="dl" href="/api/jobs/${id}/report/download">Download report (.docx)</a>`;
+      flash("Report generated.", true);
+    } catch (err) {
+      e.target.disabled = false; e.target.textContent = "Generate report";
+      flash("Report failed: " + err.message, false);
+    }
+  });
+}
+
+/* ---------- init ---------- */
+document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => {
+  if (!state.current) return;
+}));
+checkHealth();
+refreshJobs();
+setInterval(refreshJobs, 8000);
+</script>
+</body>
+</html>
