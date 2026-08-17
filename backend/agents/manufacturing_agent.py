@@ -38,6 +38,11 @@ class ManufacturingAgent:
             return ManufacturingExtract()
         stages = []
         for i, s in enumerate(result.get("stages", []) or []):
+            if isinstance(s, str):
+                stages.append({"order": i + 1, "title": s.strip()[:256] or f"Stage {i + 1}"})
+                continue
+            if not isinstance(s, dict):
+                continue
             title = coerce_str(s.get("title")).strip() or f"Stage {i + 1}"
             stages.append({
                 "order": int(s.get("order") or i + 1),

@@ -39,6 +39,8 @@ from backend.schemas import (
     AnalysisSummary,
     CompoundOut,
     FlowchartOut,
+    FlowEdge,
+    FlowNode,
     HealthOut,
     ManufacturingOut,
     ProgressEvent,
@@ -274,12 +276,24 @@ def create_app() -> FastAPI:
         if not job:
             raise HTTPException(404, "Job not found")
         nodes, edges = build_graph(job)
-        rf = to_react_flow(job, nodes, edges)
-        return FlowchartOut(
-            job_id=job_id,
-            nodes=rf["nodes"],
-            edges=rf["edges"],
-        )
+        from backend.services.flowchart_service import _hierarchical_layout
+        layout = _hierarchical_layout(nodes, edges)
+        node_list = []
+        for n in nodes:
+            pos = layout.get(n.id, {"x": 0, "y": 0})
+            node_list.append(FlowNode(
+                id=n.id, kind=n.kind, label=n.label,
+                page=n.page, image_url=(
+                    f"/api/jobs/{job_id}/structures/{n.cid}.png" if n.cid else None
+                ),
+                x=float(pos["x"]), y=float(pos["y"]),
+            ))
+        edge_list = []
+        for e in edges:
+            edge_list.append(FlowEdge(
+                id=e.id, source=e.source, target=e.target, label=e.label,
+            ))
+        return FlowchartOut(job_id=job_id, nodes=node_list, edges=edge_list)
 
     @app.get("/api/jobs/{job_id}/manufacturing", response_model=ManufacturingOut)
     def manufacturing(job_id: int, db: Session = Depends(get_db)):

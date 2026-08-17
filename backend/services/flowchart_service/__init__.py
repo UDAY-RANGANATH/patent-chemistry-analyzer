@@ -74,6 +74,20 @@ def build_graph(job: Job) -> tuple[list[FlowNodeSpec], list[FlowEdgeSpec]]:
         reactants = participants.get("reactant", [])
         products = participants.get("product", [])
         intermediates = participants.get("intermediate", [])
+
+        # Fallback: if the participants table is sparse, match from text fields.
+        if not reactants and rxn.reactants_text:
+            reactants = _fuzzy_match_cids(rxn.reactants_text, compounds)
+        if not products and rxn.products_text:
+            products = _fuzzy_match_cids(rxn.products_text, compounds)
+
+        # Second-pass: for reactions with only one side, try matching
+        # the OTHER text against known compounds too.
+        if reactants and not products and rxn.products_text:
+            products = _fuzzy_match_cids(rxn.products_text, compounds)
+        if products and not reactants and rxn.reactants_text:
+            reactants = _fuzzy_match_cids(rxn.reactants_text, compounds)
+
         if not reactants and not intermediates:
             continue
         sources = intermediates or reactants
@@ -84,6 +98,8 @@ def build_graph(job: Job) -> tuple[list[FlowNodeSpec], list[FlowEdgeSpec]]:
         ordered_sources = intermediates + [r for r in reactants if r not in intermediates]
         for src in ordered_sources:
             for tgt in targets:
+                if src == tgt:
+                    continue
                 edge_idx += 1
                 edges.append(FlowEdgeSpec(
                     id=f"e:{rxn.rid}:{edge_idx}",
@@ -172,6 +188,33 @@ def _participants_by_role(rxn: Reaction) -> dict[str, list[str]]:
         result.setdefault(role, [])
         result[role].append(c.cid)
     return result
+
+
+def _fuzzy_match_cids(text: str, compounds: dict[str, Compound]) -> list[str]:
+    """Match compound names from a text string against known compounds."""
+    text_lower = text.lower()
+    matched: list[str] = []
+    for cid, c in compounds.items():
+        name_lower = c.name.lower()
+        common_lower = (c.common_name or "").lower()
+        iupac_lower = (c.iupac_name or "").lower()
+        # Exact or substring match on any name variant
+        if len(name_lower) > 4 and (
+            name_lower in text_lower
+            or text_lower in name_lower
+            or (common_lower and len(common_lower) > 4 and common_lower in text_lower)
+            or (iupac_lower and len(iupac_lower) > 4 and iupac_lower in text_lower)
+        ):
+            if cid not in matched:
+                matched.append(cid)
+            continue
+        # Word overlap: extract significant words (>5 chars) from compound name
+        name_words = {w for w in name_lower.split() if len(w) > 5}
+        text_words = set(text_lower.split())
+        if name_words and len(name_words & text_words) >= 2:
+            if cid not in matched:
+                matched.append(cid)
+    return matched
 
 
 def _edge_label(rxn: Reaction) -> str:

@@ -96,7 +96,7 @@ All settings come from environment variables / `.env` (see `.env.example`):
 | Variable | Default | Notes |
 |---|---|---|
 | `GROQ_API_KEY` | *(empty)* | Used first if set |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | |
 | `OPENAI_API_KEY` | *(empty)* | Second in provider chain |
 | `GOOGLE_API_KEY` | *(empty)* | Third |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Local fallback provider |

@@ -47,6 +47,11 @@ class ReactionAnalysisAgent:
             return []
         extracts: list[ReactionExtract] = []
         for item in result.get("reactions", []):
+            if isinstance(item, str):
+                extracts.append(ReactionExtract(name=item.strip()[:256]))
+                continue
+            if not isinstance(item, dict):
+                continue
             extracts.append(ReactionExtract(
                 name=coerce_str(item.get("name")).strip()[:256],
                 type=_ns(item.get("type")),

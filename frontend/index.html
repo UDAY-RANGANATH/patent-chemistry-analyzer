@@ -440,13 +440,15 @@ function renderFlowchart(f) {
   drawFlow(f, $("#flowcanvas"));
 }
 function drawFlow(f, canvas) {
-  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
-  const H = canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1);
-  const ctx = canvas.getContext("2d");
-  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
   const nodes = f.nodes, edges = f.edges;
+  if (!nodes.length) return;
+
+  const pad = 40, nodeW = 180, nodeH = 52, vGap = 24, hGap = 160;
+
   const byId = {}; nodes.forEach(n => byId[n.id] = n);
+
+  /* --- Layer assignment (topological) --- */
   const layer = {};
   const layerOf = (id) => {
     if (layer[id] != null) return layer[id];
@@ -457,47 +459,89 @@ function drawFlow(f, canvas) {
   };
   nodes.forEach(n => layerOf(n.id));
   const maxLayer = Math.max(0, ...Object.values(layer));
+
+  /* --- If all nodes are on layer 0 (no real edges), force vertical layout --- */
+  const allSameLayer = Object.values(layer).every(v => v === 0);
   const cols = {};
   nodes.forEach(n => { (cols[layer[n.id]] = cols[layer[n.id]] || []).push(n); });
-  const pad = 70, vGap = 70, nodeW = 130, nodeH = 40;
-  const pos = {};
-  Object.keys(cols).forEach(l => {
-    const list = cols[l];
-    const total = list.length * (nodeH + vGap) - vGap;
-    const start = (ch - total) / 2;
-    list.forEach((n, i) => pos[n.id] = { x: pad + +l * (nodeW + 130), y: start + i * (nodeH + vGap) });
-  });
-  const L = cw - 2 * pad, R = pad + maxLayer * (nodeW + 130);
-  const colW = Math.max(0, (R - pad) / Math.max(1, maxLayer));
+
+  let pos = {};
+  if (allSameLayer && edges.length === 0) {
+    nodes.forEach((n, i) => { pos[n.id] = { x: pad, y: pad + i * (nodeH + vGap) }; });
+  } else {
+    Object.keys(cols).forEach(l => {
+      const list = cols[l];
+      list.forEach((n, i) => {
+        pos[n.id] = { x: pad + l * (nodeW + hGap), y: pad + i * (nodeH + vGap) };
+      });
+    });
+  }
+
+  /* --- Size canvas to fit all nodes --- */
+  let maxX = 0, maxY = 0;
+  Object.values(pos).forEach(p => { maxX = Math.max(maxX, p.x + nodeW); maxY = Math.max(maxY, p.y + nodeH); });
+  const cw = maxX + pad * 2, ch = maxY + pad * 2;
+  canvas.style.width = cw + "px";
+  canvas.style.height = ch + "px";
+  canvas.width = cw * dpr;
+  canvas.height = ch * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  /* --- Draw edges --- */
   ctx.lineWidth = 1.5;
   edges.forEach(e => {
     const s = pos[e.source], t = pos[e.target];
     if (!s || !t) return;
     ctx.strokeStyle = "#22d3ee"; ctx.beginPath();
-    const mx = (s.x + t.x) / 2;
-    ctx.moveTo(s.x + nodeW, s.y + nodeH / 2);
-    ctx.bezierCurveTo(mx + 40, s.y + nodeH / 2, mx - 40, t.y + nodeH / 2, t.x, t.y + nodeH / 2);
+    const sx = s.x + nodeW, sy = s.y + nodeH / 2;
+    const tx = t.x, ty = t.y + nodeH / 2;
+    const mx = (sx + tx) / 2;
+    ctx.moveTo(sx, sy);
+    ctx.bezierCurveTo(mx, sy, mx, ty, tx, ty);
     ctx.stroke();
+    /* arrowhead */
+    ctx.fillStyle = "#22d3ee"; ctx.beginPath();
+    ctx.moveTo(tx, ty); ctx.lineTo(tx - 8, ty - 4); ctx.lineTo(tx - 8, ty + 4); ctx.fill();
     if (e.label) {
-      ctx.fillStyle = "#e2e8f0"; ctx.font = "10px Segoe UI, sans-serif";
-      ctx.fillText(e.label.length > 42 ? e.label.slice(0, 42) + "…" : e.label, mx - 60, (s.y + t.y) / 2 - 6);
+      ctx.fillStyle = "#94a3b8"; ctx.font = "10px sans-serif";
+      const lbl = e.label.length > 50 ? e.label.slice(0, 50) + "…" : e.label;
+      ctx.fillText(lbl, mx - 60, Math.min(sy, ty) - 6);
     }
   });
+
+  /* --- Draw nodes (load images after all boxes are painted) --- */
+  const imagesToLoad = [];
   nodes.forEach(n => {
     const p = pos[n.id]; if (!p) return;
     const isC = n.kind === "compound";
+    /* box */
     ctx.fillStyle = isC ? "#0c4a6e" : "#7f1d1d";
     ctx.strokeStyle = isC ? "#38bdf8" : "#f87171";
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.roundRect(p.x, p.y, nodeW, nodeH, 8); ctx.fill(); ctx.stroke();
-    const label = (n.label || n.id).length > 22 ? (n.label || n.id).slice(0, 22) + "…" : (n.label || n.id);
-    ctx.fillStyle = "#e2e8f0"; ctx.font = "600 10.5px Segoe UI, sans-serif";
-    ctx.fillText(label, p.x + 6, p.y + nodeH / 2 + 3.5);
-    if (isC && n.image_url) {
-      const img = new Image();
-      img.onload = () => { ctx.drawImage(img, p.x + nodeW - 30, p.y + 4, 32, 32); };
-      img.src = n.image_url;
+    /* label — 2 lines max */
+    const full = n.label || n.id;
+    const maxChars = 24;
+    let line1 = full.length > maxChars ? full.slice(0, maxChars) : full;
+    let line2 = full.length > maxChars ? full.slice(maxChars, maxChars * 2) : "";
+    if (line2.length > maxChars) line2 = line2.slice(0, maxChars - 1) + "…";
+    ctx.fillStyle = "#e2e8f0"; ctx.font = "600 10px sans-serif";
+    ctx.fillText(line1, p.x + 6, p.y + 20);
+    if (line2) {
+      ctx.font = "10px sans-serif"; ctx.fillStyle = "#94a3b8";
+      ctx.fillText(line2, p.x + 6, p.y + 34);
     }
+    /* image — deferred */
+    if (isC && n.image_url) {
+      imagesToLoad.push({ url: n.image_url, x: p.x + nodeW - 34, y: p.y + 8, w: 36, h: 36 });
+    }
+  });
+  imagesToLoad.forEach(({ url, x, y, w, h }) => {
+    const img = new Image();
+    img.onload = () => { ctx.drawImage(img, x, y, w, h); };
+    img.src = url;
   });
 }
 

@@ -43,6 +43,12 @@ class ChemicalEntityAgent:
             return []
         mentions: list[EntityMention] = []
         for item in result.get("compounds", []):
+            if isinstance(item, str):
+                if item.strip():
+                    mentions.append(EntityMention(name=item.strip()[:300]))
+                continue
+            if not isinstance(item, dict):
+                continue
             name = coerce_str(item.get("name")).strip()
             if not name:
                 continue

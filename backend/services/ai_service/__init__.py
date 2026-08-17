@@ -91,8 +91,13 @@ class AIService:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
         if json_mode:
-            # Groq + OpenAI support response_format; Ollama ignores it harmlessly.
-            kwargs["response_format"] = {"type": "json_object"}
+            # Inject JSON instruction into last user message instead of using
+            # response_format — Groq's strict JSON validator rejects valid output.
+            messages = list(messages)
+            messages[-1] = {
+                "role": messages[-1]["role"],
+                "content": messages[-1]["content"] + "\n\nRespond ONLY with a valid JSON object. No markdown fences, no extra text.",
+            }
         try:
             resp = client.chat.completions.create(messages=messages, **kwargs)  # type: ignore[call-arg]
             return resp.choices[0].message.content or ""
