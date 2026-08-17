@@ -41,8 +41,18 @@
   .tab { display: none; }
   .tab.active { display: block; }
   .progress { height: 10px; background: var(--panel2); border-radius: 6px; overflow: hidden; margin: 10px 0; }
-  .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); width: 0%; transition: width .4s; }
-  #progressLabel { font-size: 12px; color: var(--muted); }
+  .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); width: 0%; transition: width .5s ease-out; }
+  .progress-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .phase-bar { display: flex; gap: 2px; margin-top: 8px; }
+  .phase-bar .seg { flex: 1; height: 6px; border-radius: 3px; background: var(--panel2); position: relative; overflow: hidden; transition: background .3s; }
+  .phase-bar .seg.active { background: var(--accent); }
+  .phase-bar .seg.done { background: var(--ok); }
+  .phase-bar .seg .fill { position: absolute; inset: 0; background: var(--accent2); transform: scaleX(0); transform-origin: left; transition: transform .5s ease-out; }
+  .phase-bar .seg.active .fill { transform: scaleX(var(--fill, 0)); }
+  .phase-names { display: flex; gap: 2px; margin-top: 3px; }
+  .phase-names span { flex: 1; font-size: 9.5px; color: var(--muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .phase-names span.active { color: var(--accent); font-weight: 600; }
+  .phase-names span.done { color: var(--ok); }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
   .card h3 { margin: 0 0 8px; font-size: 14px; }
   table { border-collapse: collapse; width: 100%; font-size: 12px; }
@@ -101,7 +111,21 @@
       <div id="jobMeta" class="muted" style="font-size:12px"></div>
       <div id="progressWrap" style="display:none">
         <div class="progress"><div id="progressBar"></div></div>
-        <div id="progressLabel">starting…</div>
+        <div class="progress-label" id="progressLabel">starting…</div>
+        <div class="phase-bar" id="phaseBar">
+          <div class="seg" data-phase="0"><div class="fill"></div></div>
+          <div class="seg" data-phase="1"><div class="fill"></div></div>
+          <div class="seg" data-phase="2"><div class="fill"></div></div>
+          <div class="seg" data-phase="3"><div class="fill"></div></div>
+          <div class="seg" data-phase="4"><div class="fill"></div></div>
+        </div>
+        <div class="phase-names" id="phaseNames">
+          <span data-phase="0">OCR</span>
+          <span data-phase="1">Chemistry</span>
+          <span data-phase="2">Reactions</span>
+          <span data-phase="3">Manufacturing</span>
+          <span data-phase="4">QC</span>
+        </div>
       </div>
       <div id="jobError" class="flash" style="display:none"></div>
       <div id="tabs">
@@ -126,7 +150,58 @@
 <script>
 "use strict";
 const $ = (sel) => document.querySelector(sel);
-const state = { jobs: [], current: null, eventSrc: null, pollTimer: null };
+const state = { jobs: [], current: null, eventSrc: null, pollTimer: null, activeJobId: null, highestProgress: 0 };
+const PHASES = [
+  { name: "OCR", stages: ["PDF uploaded", "Text extracted"] },
+  { name: "Chemistry", stages: ["Analyzing patent structure", "Patent sections detected", "Building search index", "Search index ready", "Extracting chemical entities", "Chemical entities extracted", "Validating compounds with chemistry APIs"] },
+  { name: "Reactions", stages: ["Extracting reactions", "Understanding reaction chemistry"] },
+  { name: "Manufacturing", stages: ["Reconstructing manufacturing process"] },
+  { name: "QC", stages: ["Quality control", "Analysis complete"] },
+];
+function getPhaseIndex(stage) {
+  for (let i = 0; i < PHASES.length; i++) {
+    if (PHASES[i].stages.some(s => stage && stage.includes(s))) return i;
+  }
+  return -1;
+}
+function updateProgress(pct, stage, detail) {
+  const bar = $("#progressBar");
+  const label = $("#progressLabel");
+  if (bar) {
+    const p = Math.round((pct || 0) * 100);
+    state.highestProgress = Math.max(state.highestProgress, p);
+    bar.style.width = state.highestProgress + "%";
+  }
+  if (label) {
+    const stageText = stage || "";
+    const detailText = detail ? " — " + detail : "";
+    const pctText = pct != null ? " · " + Math.round(pct * 100) + "%" : "";
+    label.textContent = stageText + detailText + pctText;
+  }
+  const phaseIdx = getPhaseIndex(stage);
+  const phases = document.querySelectorAll("#phaseBar .seg");
+  const names = document.querySelectorAll("#phaseNames span");
+  phases.forEach((seg, i) => {
+    const fill = seg.querySelector(".fill");
+    seg.classList.remove("active", "done");
+    if (phaseIdx < 0) return;
+    if (i < phaseIdx) {
+      seg.classList.add("done");
+      fill.style.transform = "scaleX(1)";
+    } else if (i === phaseIdx) {
+      seg.classList.add("active");
+      fill.style.transform = "scaleX(" + Math.min(1, Math.max(0.05, (pct || 0))) + ")";
+    } else {
+      fill.style.transform = "scaleX(0)";
+    }
+  });
+  names.forEach((span, i) => {
+    span.classList.remove("active", "done");
+    if (phaseIdx < 0) return;
+    if (i < phaseIdx) span.classList.add("done");
+    else if (i === phaseIdx) span.classList.add("active");
+  });
+}
 
 /* ---------- helpers ---------- */
 function esc(s) {
@@ -191,8 +266,8 @@ async function refreshJobs() {
     const jobs = await api("/api/jobs");
     state.jobs = jobs;
     renderJobs();
-    if (state.current && state.current.status === "processing") {
-      const fresh = jobs.find(j => j.job_id === state.current.job_id);
+    if (state.activeJobId && state.current && state.current.status === "processing") {
+      const fresh = jobs.find(j => j.job_id === state.activeJobId);
       if (fresh) state.current = fresh;
     }
   } catch (e) { /* backend down */ }
@@ -202,7 +277,8 @@ function renderJobs() {
   if (!state.jobs.length) { el.innerHTML = '<div class="muted" style="font-size:12px">No jobs yet.</div>'; return; }
   el.innerHTML = state.jobs.map(j => {
     const st = STATUS[j.status] || ["warn", j.status];
-    return `<div class="job-card ${state.current && state.current.job_id === j.job_id ? "active" : ""}" data-id="${j.job_id}">
+    const isActive = state.activeJobId === j.job_id;
+    return `<div class="job-card ${isActive ? "active" : ""}" data-id="${j.job_id}">
       <div class="name">${esc(j.filename)} <span class="chip ${st[0]}">${st[1]}</span></div>
       <div class="meta">#${j.job_id} · ${j.patent_title && j.patent_title !== "Not specified in patent" ? esc(j.patent_title) : "no title yet"}${j.progress > 0 ? " · " + Math.round(j.progress * 100) + "%" : ""}</div>
     </div>`;
@@ -212,40 +288,46 @@ function renderJobs() {
 
 /* ---------- selection ---------- */
 function selectJob(id) {
-  if (state.current && state.current.job_id === id) { showJob(); return; }
-  disconnectStream();
-  clearInterval(state.pollTimer);
+  if (state.activeJobId === id) return;
+  cleanup();
   state.current = state.jobs.find(j => j.job_id === id) || { job_id: id, status: "processing" };
+  state.activeJobId = id;
+  state.highestProgress = 0;
   renderJobs();
   showJob();
 }
-function disconnectStream() {
+function cleanup() {
   if (state.eventSrc) { state.eventSrc.close(); state.eventSrc = null; }
   if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
 }
 function showJob() {
+  if (!state.current) return;
   $("#noJob").style.display = "none";
   $("#jobView").style.display = "block";
   const j = state.current;
-  $("#jobTitle").textContent = (j.patent_title && j.patent_title !== "Not specified in patent") ? j.patent_title : `Job #${j.job_id} — ${esc(j.filename)}`;
-  $("#jobMeta").textContent = `#${j.job_id} · ${j.page_count} pages · status ${j.status}${j.confidence ? " · QC " + Math.round(j.confidence * 100) + "%" : ""}`;
+  const jid = j.job_id;
+  $("#jobTitle").textContent = (j.patent_title && j.patent_title !== "Not specified in patent") ? j.patent_title : `Job #${jid} — ${esc(j.filename || "")}`;
+  $("#jobMeta").textContent = `#${jid} · ${j.page_count || 0} pages · status ${j.status}${j.confidence ? " · QC " + Math.round(j.confidence * 100) + "%" : ""}`;
   $("#jobError").style.display = j.error ? "block" : "none";
   if (j.error) $("#jobError").textContent = "Error: " + j.error;
 
   if (j.status === "processing" || j.status === "uploaded") {
     $("#progressWrap").style.display = "block";
-    $("#progressBar").style.width = Math.round((j.progress || 0) * 100) + "%";
-    $("#progressLabel").textContent = (j.current_stage || "queued") + (j.progress ? " · " + Math.round(j.progress * 100) + "%" : "");
-    openStream(j.job_id);
+    updateProgress(j.progress || 0, j.current_stage || "queued", "");
+    openStream(jid);
     state.pollTimer = setInterval(async () => {
+      if (state.activeJobId !== jid) { clearInterval(state.pollTimer); state.pollTimer = null; return; }
       try {
-        const s = await api(`/api/jobs/${j.job_id}/summary`);
+        const s = await api(`/api/jobs/${jid}/summary`);
+        if (state.activeJobId !== jid) return;
         if (s.status !== "processing" && s.status !== "uploaded") {
-          state.current = s; refreshJobs(); showJob();
+          cleanup();
+          state.current = s;
+          state.activeJobId = jid;
+          showJob();
         } else {
           state.current = s;
-          $("#progressBar").style.width = Math.round(s.progress * 100) + "%";
-          $("#progressLabel").textContent = s.current_stage + " · " + Math.round(s.progress * 100) + "%";
+          updateProgress(s.progress, s.current_stage, "");
         }
       } catch (e) {}
     }, 3000);
@@ -253,30 +335,33 @@ function showJob() {
     return;
   }
   $("#progressWrap").style.display = "none";
-  disconnectStream();
-  if (j.status === "complete") loadData(j.job_id);
+  cleanup();
+  state.activeJobId = jid;
+  if (j.status === "complete") loadData(jid);
   else renderEmpty(`Analysis ${j.status}.`);
 }
 
 function openStream(id) {
-  if (state.eventSrc) return;
+  if (state.eventSrc) { state.eventSrc.close(); state.eventSrc = null; }
   const es = new EventSource(`/api/jobs/${id}/events`);
   state.eventSrc = es;
   es.onmessage = (ev) => {
+    if (state.activeJobId !== id) return;
     try {
       const d = JSON.parse(ev.data);
-      if (d.progress != null) {
-        $("#progressBar").style.width = Math.round(d.progress * 100) + "%";
-        $("#progressLabel").textContent = (d.stage || "") + (d.detail ? " — " + d.detail : "");
-      }
+      if (d.progress != null) updateProgress(d.progress, d.stage, d.detail);
+      if (d.stage === "complete" || d.stage === "failed") { es.close(); state.eventSrc = null; }
     } catch (e) {}
   };
-  es.onerror = () => { /* server will re-poll via summary */ };
+  es.onerror = () => {
+    if (state.activeJobId === id && state.eventSrc === es) { es.close(); state.eventSrc = null; }
+  };
 }
 
 /* ---------- data loading ---------- */
 async function loadData(id) {
-  renderSkeleton(state.current);
+  const j = state.current;
+  renderSkeleton(j);
   try {
     const [summary, compounds, reactions, stages, manufacturing, flowchart] = await Promise.all([
       api(`/api/jobs/${id}/summary`),
@@ -286,6 +371,7 @@ async function loadData(id) {
       api(`/api/jobs/${id}/manufacturing`),
       api(`/api/jobs/${id}/flowchart`),
     ]);
+    if (state.activeJobId !== id) return;
     state.current = summary;
     renderOverview(summary);
     renderCompounds(compounds);
