@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import time
+import threading
 from typing import Any, Literal
 
 from openai import OpenAI
@@ -24,6 +27,23 @@ logger = logging.getLogger("pca.ai")
 
 SystemMessage = dict[str, str]
 UserMessage = dict[str, str]
+
+# Global rate limiter: spaces LLM calls so we don't burst past Groq's TPM limit.
+# Groq free tier: 8000 TPM. With ~1000 tokens/call, we need ~1.5s between calls.
+_llm_lock = threading.Lock()
+_last_llm_call = 0.0
+_MIN_GAP = 1.5
+
+
+def _throttle() -> None:
+    """Wait if needed so we don't burst past the TPM limit."""
+    global _last_llm_call
+    with _llm_lock:
+        now = time.monotonic()
+        wait = _MIN_GAP - (now - _last_llm_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_llm_call = time.monotonic()
 
 
 class AIService:
@@ -43,11 +63,11 @@ class AIService:
                     api_key=settings.GROQ_API_KEY,
                     base_url=settings.GROQ_BASE_URL,
                     timeout=90.0,
-                    max_retries=2,
+                    max_retries=0,
                 )
             elif provider == "openai":
                 self._clients[provider] = OpenAI(
-                    api_key=settings.OPENAI_API_KEY, timeout=90.0, max_retries=2
+                    api_key=settings.OPENAI_API_KEY, timeout=90.0, max_retries=0
                 )
             elif provider == "ollama":
                 self._clients[provider] = OpenAI(
@@ -69,7 +89,6 @@ class AIService:
             return settings.GOOGLE_MODEL
         return settings.OLLAMA_MODEL
 
-    @retry(max_attempts=3, base_delay=1.5, backoff=2.0)
     def chat(
         self,
         messages: list[SystemMessage | UserMessage],
@@ -91,19 +110,36 @@ class AIService:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
         if json_mode:
-            # Inject JSON instruction into last user message instead of using
-            # response_format — Groq's strict JSON validator rejects valid output.
             messages = list(messages)
             messages[-1] = {
                 "role": messages[-1]["role"],
                 "content": messages[-1]["content"] + "\n\nRespond ONLY with a valid JSON object. No markdown fences, no extra text.",
             }
-        try:
-            resp = client.chat.completions.create(messages=messages, **kwargs)  # type: ignore[call-arg]
-            return resp.choices[0].message.content or ""
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("AI chat failed (%s/%s): %s", prov, model, exc)
-            raise
+
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            _throttle()
+            try:
+                resp = client.chat.completions.create(messages=messages, **kwargs)  # type: ignore[call-arg]
+                return resp.choices[0].message.content or ""
+            except Exception as exc:
+                exc_str = str(exc)
+                if "429" in exc_str or "rate_limit" in exc_str:
+                    wait = _parse_wait(exc_str)
+                    logger.warning("Rate limit (attempt %d/%d), waiting %.1fs — %.200s",
+                                   attempt, max_attempts, wait, exc_str)
+                    if attempt < max_attempts:
+                        time.sleep(wait)
+                        continue
+                    raise
+                if attempt < max_attempts:
+                    delay = 1.5 * (2.0 ** (attempt - 1))
+                    logger.warning("AI chat failed (attempt %d/%d), retry in %.1fs: %.200s",
+                                   attempt, max_attempts, delay, exc_str)
+                    time.sleep(delay)
+                    continue
+                logger.warning("AI chat failed (%s/%s): %.300s", prov, model, exc_str)
+                raise
 
     def _chat_google(self, messages, temperature, max_tokens, json_mode):  # type: ignore[no-untyped-def]
         try:
@@ -154,6 +190,14 @@ class AIService:
         except Exception as exc:  # noqa: BLE001
             logger.info("Ollama embeddings unavailable: %s", exc)
         return None
+
+
+def _parse_wait(exc_str: str) -> float:
+    """Extract 'try again in X.Xs' from a Groq 429 error message."""
+    m = re.search(r"try again in (\d+\.?\d*)s", exc_str, re.IGNORECASE)
+    if m:
+        return float(m.group(1)) + 0.5  # small buffer
+    return 3.0  # default fallback
 
 
 def _extract_json(raw: str) -> dict | None:
