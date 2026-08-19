@@ -5,6 +5,7 @@ All secrets live server-side only. Never import this from the frontend.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,6 +13,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BACKEND_DIR.parent
+
+# Railway injects this; local dev uses localhost.
+RAILWAY_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
 
 
 class Settings(BaseSettings):
@@ -58,7 +62,7 @@ class Settings(BaseSettings):
     # --- Limits ---
     MAX_PAGES: int = 150
     MAX_UPLOAD_MB: int = 200
-    CORS_ORIGINS: str = "http://localhost:5173"
+    CORS_ORIGINS: str = ""
 
     @property
     def database_url(self) -> str:
@@ -68,7 +72,13 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        if self.CORS_ORIGINS:
+            return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        # Auto-allow Railway domain + localhost for dev
+        origins = ["http://localhost:5173", "http://localhost:8000"]
+        if RAILWAY_DOMAIN:
+            origins.append(f"https://{RAILWAY_DOMAIN}")
+        return origins
 
     @property
     def active_ai_provider(self) -> str:

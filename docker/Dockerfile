@@ -30,7 +30,7 @@ COPY frontend ./frontend
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS http://localhost:8000/api/health || exit 1
+    CMD curl -fsS http://localhost:${PORT:-8000}/api/health || exit 1
 
-# Secrets are injected at runtime via environment (compose env_file), never baked in.
-CMD ["python", "-m", "uvicorn", "backend.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Railway sets $PORT; default to 8000 for local/Docker Compose.
+CMD ["sh", "-c", "python -m uvicorn backend.api:app --host 0.0.0.0 --port ${PORT:-8000}"]
