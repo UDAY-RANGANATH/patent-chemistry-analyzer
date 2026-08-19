@@ -37,6 +37,7 @@ class ChemicalEntityAgent:
             result = self.ai.chat_json(
                 [system_message(ENTITY_SYSTEM), user_message(ENTITY_USER.format(chunk=chunk))],
                 max_tokens=1500,
+                temperature=0.0,
             )
         except ValueError as exc:
             logger.warning("Entity extraction JSON failed: %s", exc)

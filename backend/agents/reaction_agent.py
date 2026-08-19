@@ -41,6 +41,7 @@ class ReactionAnalysisAgent:
             result = self.ai.chat_json(
                 [system_message(REACTION_SYSTEM), user_message(REACTION_USER.format(chunk=chunk))],
                 max_tokens=2000,
+                temperature=0.0,
             )
         except ValueError as exc:
             logger.warning("Reaction extraction JSON failed: %s", exc)

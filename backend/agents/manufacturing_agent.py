@@ -32,6 +32,7 @@ class ManufacturingAgent:
                 [system_message(MANUFACTURING_SYSTEM),
                  user_message(MANUFACTURING_USER.format(chunk=chunk))],
                 max_tokens=2000,
+                temperature=0.0,
             )
         except ValueError as exc:
             logger.warning("Manufacturing extraction JSON failed: %s", exc)

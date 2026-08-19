@@ -167,7 +167,7 @@ class AIService:
         messages: list[SystemMessage | UserMessage],
         *,
         provider: str | None = None,
-        temperature: float = 0.2,
+        temperature: float = 0.0,
         max_tokens: int = 4096,
     ) -> dict[str, Any]:
         """Chat then parse the reply as JSON. Raises ValueError if unparseable."""
